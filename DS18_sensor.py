@@ -1,4 +1,7 @@
+#!/usr/bin/env python3
 import time
+import sys
+sys.path.append('/home/pi/.local/lib/python3.7/site-packages')
 from w1thermsensor import W1ThermSensor
 import http.client
 import urllib
