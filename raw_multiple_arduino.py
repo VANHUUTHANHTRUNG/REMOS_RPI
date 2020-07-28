@@ -8,8 +8,8 @@ import http.client
 import urllib
 import thingspeak
 from multiprocessing import Process
+import strain_calculation as cal
 
-port_str = '/dev/ttyACM1'
 
 # Thermal sensors details at thingspeak
 therm_channel_id = 1083150
@@ -17,30 +17,22 @@ therm_API_write = '23NNOFM7VANJ3KJA'
 therm_API_read = '00IX5YL06NSI6W33'
 
 # Smartbolt channel details at thingspeak
-strain_channel_id = 1102730
-strain_API_write = 'XVK2UWY0T72HDJQI'
-strain_API_read = 'ISUW80PVH5LB1TJM'
+strain_channel_id = 1104638
+strain_API_write = 'RGNVI3JND687TN33'
+strain_API_read = 'Y4YL8OS6I3L1BXOA'
 
+# USB port for arduino connecting to Raspberry, Arduino with thermal sensor is the last in list
+arduino_port1 = '/dev/ttyUSB0'
+arduino_port2 = '/dev/ttyUSB2'
+arduino_port3 = '/dev/ttyUSB1'
+port_list = [arduino_port1,arduino_port2,arduino_port3]
+
+# Thermal code
 def get_therm_data():
     sensor_data = {}
     for sensor in W1ThermSensor.get_available_sensors():
         sensor_data[sensor.id] = sensor.get_temperature()
     return sensor_data
-
-def get_strain_therm_data(line):
-##    d = {}
-    print(line)
-    sub_str = line.split(':')
-    print(sub_str)
-##    key,value = zip(*(s.split('=') for s in sub_str))
-##    for k in key:
-##        d[k] = value
-    d = dict(item.split("=") for item in line.split(":"))
-    return d
-def print_temp(sensor_data):
-    for key,val in sensor_data.items():
-        print("{:s} : {:.2f}".format(key,val))
-    print("-"*50)
 
 def thingspeak_thermal_post(sensor_data):
     params = ""    
@@ -62,6 +54,42 @@ def thingspeak_thermal_post(sensor_data):
     except:
         print("connection failed")
 
+def get_strain_therm_data(line):
+    print(line)
+##    sub_str = line.split(':')
+##    print(sub_str)
+    
+    d = dict(item.split("=") for item in line.split(":"))
+    return d
+
+def get_arduino_data(port_list):
+    arduino_data = {}
+    for port in port_list:
+        print(port)
+        ser = serial.Serial(port,9600,parity=serial.PARITY_NONE,stopbits=serial.STOPBITS_ONE,timeout=5)
+        ser.flush()
+        if ser.readline():
+            try:
+                line = ser.readline().decode('utf-8').rstrip()
+            except UnicodeDecodeError:
+                print("UnicodeDecodeError")
+                pass
+            else:
+                try:
+                    data_per_ard = get_strain_therm_data(line)
+                except ValueError:
+                    print("ValueError")
+                    pass
+                else:
+                    for key in data_per_ard.keys():
+                        if key != 'temp':
+                            arduino_data[key + port.split('/')[2]] = data_per_ard[key]
+                        else:
+                            arduino_data[key] = data_per_ard[key]
+    if 'temp' in arduino_data.keys():
+        return arduino_data
+    else:
+        return {}
 def thingspeak_strain_post(sensor_data):
     params = ""    
     for idx, val in enumerate(sensor_data.values()):
@@ -83,41 +111,10 @@ def thingspeak_strain_post(sensor_data):
         print("connection failed")
 
 if __name__ == '__main__':
-    ser = serial.Serial(port_str,9600,parity=serial.PARITY_NONE,stopbits=serial.STOPBITS_ONE,timeout=5)
-    ser.flush()
-    t1 = time.time()
-    time.sleep(15)
-    t2 = 0
-    while (t2-t1) < 15:
-        print("Warming up")
-        if ser.in_waiting > 0:
-            line = ser.readline().decode('utf-8').rstrip()
-            print(line)
-        time.sleep(1)
-        t2 = time.time()
-        ser.flush()
-    while(True):
-        #Thermal sensors:
-        therm_sensor_data = get_therm_data()
-        thingspeak_thermal_post(therm_sensor_data)
-
-        #Strain gauge:
-        strain_val = []
-        if ser.in_waiting > 0:
-            try:
-                line = ser.readline().decode('ISO-8859-1').rstrip()
-            except UnicodeDecodeError:
-                print("UnicodeDecodeError")
-                pass
-            else:
-                try:
-                    strain_therm_sensor_data = get_strain_therm_data(line)
-                except ValueError:
-                    print("ValueError")
-                    pass
-                else:
-                    thingspeak_strain_post(strain_therm_sensor_data)
-
-
-
+    while True:
+##        therm_sensor_data = get_therm_data()
+##        thingspeak_thermal_post(therm_sensor_data)
+        arduino_data = get_arduino_data(port_list)
+        print(arduino_data)
+        thingspeak_strain_post(arduino_data)
         time.sleep(15)
